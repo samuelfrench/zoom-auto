@@ -6,7 +6,9 @@ decide, generate, and speak.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime
 
 from zoom_auto.config import Settings
 from zoom_auto.context.manager import ContextManager
@@ -47,14 +49,61 @@ class ConversationLoop:
         self.response_generator = response_generator
         self.turn_manager = turn_manager
         self._running = False
+        self._response_task: asyncio.Task[None] | None = None
+        self._utterance_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        self._main_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Start the conversation loop."""
-        raise NotImplementedError("Conversation loop not yet implemented")
+        if self._running:
+            logger.warning("ConversationLoop already running")
+            return
+
+        self._running = True
+
+        # Register our transcript callback on the audio pipeline
+        self.audio_pipeline.set_transcript_callback(self._on_transcript)
+
+        # Start the audio pipeline
+        await self.audio_pipeline.start()
+
+        # Start the main processing loop
+        self._main_task = asyncio.create_task(self._main_loop())
+
+        logger.info("ConversationLoop started")
 
     async def stop(self) -> None:
         """Stop the conversation loop gracefully."""
+        if not self._running:
+            return
+
         self._running = False
+
+        # Stop the audio pipeline
+        await self.audio_pipeline.stop()
+
+        # Cancel any in-progress response generation
+        if self._response_task is not None:
+            self._response_task.cancel()
+            try:
+                await self._response_task
+            except asyncio.CancelledError:
+                pass
+            self._response_task = None
+
+        # Unblock the main loop
+        await self._utterance_queue.put(("", ""))
+
+        # Cancel the main loop task
+        if self._main_task is not None:
+            self._main_task.cancel()
+            try:
+                await self._main_task
+            except asyncio.CancelledError:
+                pass
+            self._main_task = None
+
+        logger.info("ConversationLoop stopped")
 
     async def process_utterance(self, speaker: str, text: str) -> str | None:
         """Process a transcribed utterance and potentially generate a response.
@@ -66,9 +115,167 @@ class ConversationLoop:
         Returns:
             Response text if the bot should speak, None otherwise.
         """
-        raise NotImplementedError("Utterance processing not yet implemented")
+        if not text.strip():
+            return None
+
+        bot_name = self.settings.zoom.bot_name
+
+        # 1. Add transcript to context
+        await self.context_manager.add_transcript(
+            speaker=speaker,
+            text=text,
+            timestamp=datetime.now(),
+        )
+
+        # 2. Update turn manager -- someone else spoke
+        self.turn_manager.record_other_speaker()
+        self.turn_manager.on_speech_detected()
+
+        # 3. Check for interruption -- if bot is speaking and someone
+        #    else starts talking, stop the bot
+        if self.turn_manager.should_interrupt():
+            logger.info("Interruption detected -- stopping bot speech")
+            await self.audio_pipeline.stop_speaking()
+            self.turn_manager.mark_bot_done()
+
+        # 4. Signal silence after processing the utterance
+        self.turn_manager.on_silence_detected()
+
+        # 5. Check if we should respond
+        # Build recent transcript for trigger detection
+        context = await self.context_manager.get_context()
+        recent_text = "\n".join(context.recent_transcript)
+
+        decision = await self.trigger_detector.should_respond(
+            transcript=recent_text,
+            bot_name=bot_name,
+            is_cooldown_active=self.turn_manager.is_cooldown_active,
+            someone_speaking=self.turn_manager.someone_speaking,
+        )
+
+        if not decision.should_respond:
+            logger.debug(
+                "Not responding (reason=%s, confidence=%.2f)",
+                decision.reason,
+                decision.confidence,
+            )
+            return None
+
+        # 6. Check turn manager approval
+        if not self.turn_manager.can_speak():
+            logger.debug("Turn manager blocked response")
+            return None
+
+        # 7. Generate response
+        logger.info(
+            "Generating response (trigger=%s, confidence=%.2f)",
+            decision.reason,
+            decision.confidence,
+        )
+
+        response = await self.response_generator.generate(
+            trigger_context=decision.context_snippet,
+        )
+
+        if not response.text.strip():
+            logger.debug("Generated empty response, skipping")
+            return None
+
+        return response.text
 
     @property
     def is_running(self) -> bool:
         """Whether the conversation loop is running."""
         return self._running
+
+    async def _on_transcript(self, speaker: str, text: str) -> None:
+        """Callback from AudioPipeline when speech is transcribed.
+
+        Queues the utterance for processing in the main loop.
+
+        Args:
+            speaker: Speaker display name.
+            text: Transcribed text.
+        """
+        await self._utterance_queue.put((speaker, text))
+
+    async def _main_loop(self) -> None:
+        """Main conversation processing loop.
+
+        Consumes transcribed utterances from the queue and processes
+        them through trigger detection and response generation.
+        """
+        logger.debug("Main conversation loop started")
+
+        try:
+            while self._running:
+                try:
+                    speaker, text = await asyncio.wait_for(
+                        self._utterance_queue.get(), timeout=1.0
+                    )
+                except TimeoutError:
+                    continue
+
+                if not self._running:
+                    break
+
+                if not text.strip():
+                    continue
+
+                # Process the utterance and potentially generate a response
+                response_text = await self.process_utterance(speaker, text)
+
+                if response_text:
+                    # Add a natural pause before speaking
+                    pause = self.turn_manager.get_natural_pause()
+                    await asyncio.sleep(pause)
+
+                    # Check one more time that we should still speak
+                    if not self.turn_manager.can_speak():
+                        logger.debug(
+                            "Turn manager blocked after pause, discarding"
+                        )
+                        continue
+
+                    # Speak the response
+                    await self._speak_response(response_text)
+
+        except asyncio.CancelledError:
+            logger.debug("Main loop cancelled")
+        except Exception:
+            logger.exception("Error in main conversation loop")
+        finally:
+            logger.debug("Main conversation loop exited")
+
+    async def _speak_response(self, text: str) -> None:
+        """Send a response through TTS and update turn state.
+
+        Args:
+            text: The response text to speak.
+        """
+        bot_name = self.settings.zoom.bot_name
+
+        self.turn_manager.mark_bot_speaking()
+
+        try:
+            # Send through the audio pipeline (TTS -> AudioSender)
+            await self.audio_pipeline.send_response(text)
+
+            # Add bot's response to the conversation context
+            await self.context_manager.add_transcript(
+                speaker=bot_name,
+                text=text,
+                timestamp=datetime.now(),
+            )
+
+            # Record the response in turn manager
+            self.turn_manager.record_response()
+
+            logger.info("Bot spoke: %s", text[:80])
+        except asyncio.CancelledError:
+            logger.info("Response speaking cancelled")
+            raise
+        except Exception:
+            logger.exception("Error speaking response")
+        finally:
+            self.turn_manager.mark_bot_done()
