@@ -12,6 +12,7 @@ from datetime import datetime
 
 from zoom_auto.config import Settings
 from zoom_auto.context.manager import ContextManager
+from zoom_auto.persona.learner import ConversationLearner
 from zoom_auto.pipeline.audio_pipeline import AudioPipeline
 from zoom_auto.response.decision import TriggerDetector
 from zoom_auto.response.generator import ResponseGenerator
@@ -41,6 +42,7 @@ class ConversationLoop:
         trigger_detector: TriggerDetector,
         response_generator: ResponseGenerator,
         turn_manager: TurnManager,
+        learner: ConversationLearner | None = None,
     ) -> None:
         self.settings = settings
         self.audio_pipeline = audio_pipeline
@@ -48,6 +50,7 @@ class ConversationLoop:
         self.trigger_detector = trigger_detector
         self.response_generator = response_generator
         self.turn_manager = turn_manager
+        self.learner = learner
         self._running = False
         self._response_task: asyncio.Task[None] | None = None
         self._utterance_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
@@ -60,6 +63,9 @@ class ConversationLoop:
             return
 
         self._running = True
+
+        if self.learner:
+            self.learner.start_session()
 
         # Register our transcript callback on the audio pipeline
         self.audio_pipeline.set_transcript_callback(self._on_transcript)
@@ -78,6 +84,15 @@ class ConversationLoop:
             return
 
         self._running = False
+
+        if self.learner:
+            session = self.learner.end_session()
+            logger.info(
+                "Session learnings: %d utterances, %d topics, type=%s",
+                len(session.transcript),
+                len(session.topics_discussed),
+                session.meeting_type,
+            )
 
         # Stop the audio pipeline
         await self.audio_pipeline.stop()
@@ -119,6 +134,10 @@ class ConversationLoop:
             return None
 
         bot_name = self.settings.zoom.bot_name
+
+        # Record utterance for learning
+        if self.learner:
+            self.learner.record_utterance(speaker, text)
 
         # 1. Add transcript to context
         await self.context_manager.add_transcript(
@@ -177,6 +196,14 @@ class ConversationLoop:
         if not response.text.strip():
             logger.debug("Generated empty response, skipping")
             return None
+
+        # Record bot response for learning
+        if self.learner:
+            self.learner.record_bot_response(
+                trigger_reason=decision.reason,
+                response_text=response.text,
+                context_snippet=decision.context_snippet,
+            )
 
         return response.text
 

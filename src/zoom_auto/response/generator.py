@@ -14,6 +14,7 @@ from zoom_auto.context.manager import ContextManager
 from zoom_auto.llm.base import LLMMessage, LLMProvider, LLMRole
 from zoom_auto.persona.builder import PersonaBuilder, PersonaProfile
 from zoom_auto.persona.knowledge_store import KnowledgeStore
+from zoom_auto.persona.learner import ConversationLearner
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class ResponseGenerator:
         context_manager: The meeting context manager.
         persona: Optional persona profile for styling.
         knowledge_store: Optional knowledge store for project context.
+        learner: Optional conversation learner for accumulated learnings.
     """
 
     def __init__(
@@ -94,11 +96,13 @@ class ResponseGenerator:
         context_manager: ContextManager,
         persona: PersonaProfile | None = None,
         knowledge_store: KnowledgeStore | None = None,
+        learner: ConversationLearner | None = None,
     ) -> None:
         self.llm = llm
         self.context_manager = context_manager
         self.persona = persona
         self.knowledge_store = knowledge_store
+        self.learner = learner
         self._persona_builder = PersonaBuilder()
 
     async def generate(
@@ -201,6 +205,12 @@ class ResponseGenerator:
             knowledge = self.knowledge_store.get_context_string()
             if knowledge:
                 base += f"\n\n{knowledge}"
+
+        # Add accumulated learnings from past conversations
+        if self.learner:
+            learning_context = self.learner.get_learning_context()
+            if learning_context:
+                base += f"\n\n{learning_context}"
 
         return base
 

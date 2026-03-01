@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import signal
+from pathlib import Path
 from typing import Any
 
 from zoom_auto.config import Settings
@@ -18,6 +19,7 @@ from zoom_auto.context.manager import ContextManager
 from zoom_auto.llm.base import LLMProvider
 from zoom_auto.llm.claude import ClaudeProvider
 from zoom_auto.llm.ollama import OllamaProvider
+from zoom_auto.persona.learner import ConversationLearner
 from zoom_auto.pipeline.audio_pipeline import AudioPipeline
 from zoom_auto.pipeline.conversation import ConversationLoop
 from zoom_auto.pipeline.vad import VADProcessor
@@ -74,6 +76,12 @@ class ZoomAutoApp:
             config=settings.context, llm=self.llm
         )
 
+        # -- Conversation learner --
+        self.learner = ConversationLearner(
+            data_dir=Path("data/learnings"),
+            user=settings.zoom.bot_name.lower().replace(" ", "_"),
+        )
+
         # -- Response engine --
         self.trigger_detector = TriggerDetector(
             config=settings.response, llm=self.llm
@@ -81,6 +89,7 @@ class ZoomAutoApp:
         self.response_generator = ResponseGenerator(
             llm=self.llm,
             context_manager=self.context_manager,
+            learner=self.learner,
         )
         self.turn_manager = TurnManager(config=settings.response)
 
@@ -100,6 +109,7 @@ class ZoomAutoApp:
             trigger_detector=self.trigger_detector,
             response_generator=self.response_generator,
             turn_manager=self.turn_manager,
+            learner=self.learner,
         )
 
         # Wire up Zoom events
@@ -344,6 +354,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "--name", help="Override project name (only for single path)"
     )
 
+    # Learnings command -- view accumulated learnings
+    learn_parser = subparsers.add_parser(
+        "learnings", help="View accumulated learnings"
+    )
+    learn_parser.add_argument(
+        "--user", default="default", help="Username"
+    )
+    learn_parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Show summary of accumulated learnings",
+    )
+    learn_parser.add_argument(
+        "--rebuild-persona",
+        action="store_true",
+        help="Rebuild persona from learnings",
+    )
+
     return parser
 
 
@@ -424,6 +452,81 @@ def _run_index(paths: list[str], name_override: str | None) -> None:
     print(f"Done. Indexed {len(indices)} project(s).")
 
 
+def _run_learnings(user: str, summary: bool, rebuild_persona: bool) -> None:
+    """Display accumulated learnings for a user.
+
+    Args:
+        user: Username to look up learnings for.
+        summary: Whether to show a summary.
+        rebuild_persona: Whether to rebuild persona from learnings.
+    """
+    import json as _json
+
+    learner = ConversationLearner(
+        data_dir=Path("data/learnings"), user=user,
+    )
+
+    sessions = learner.get_transcript_files()
+    if not sessions:
+        print(f"No learnings found for user '{user}'.")
+        print(f"  Data directory: data/learnings/{user}/sessions/")
+        return
+
+    print(f"Learnings for user '{user}':")
+    print(f"  Sessions: {len(sessions)}")
+    print(f"  Vocabulary size: {len(learner._vocabulary)}")
+
+    if summary or not rebuild_persona:
+        context = learner.get_learning_context()
+        if context:
+            print(f"\n{context}")
+        else:
+            print("  No learning context generated yet.")
+
+        # Show recent sessions
+        print("\nRecent sessions (last 5):")
+        for path in sessions[-5:]:
+            try:
+                data = _json.loads(path.read_text())
+                n_utterances = len(data.get("transcript", []))
+                meeting_type = data.get("meeting_type", "unknown")
+                topics = data.get("topics_discussed", [])
+                topic_str = ", ".join(topics[:3]) if topics else "none"
+                print(
+                    f"  {path.stem}: "
+                    f"{n_utterances} utterances, "
+                    f"type={meeting_type}, "
+                    f"topics=[{topic_str}]"
+                )
+            except Exception:
+                print(f"  {path.stem}: (error reading)")
+
+    if rebuild_persona:
+        print("\nRebuilding persona from learnings...")
+        # Collect all transcript text
+        texts: list[str] = []
+        for path in sessions:
+            try:
+                data = _json.loads(path.read_text())
+                for entry in data.get("transcript", []):
+                    texts.append(entry.get("text", ""))
+            except Exception:
+                continue
+
+        if texts:
+            from zoom_auto.persona.builder import PersonaBuilder
+
+            builder = PersonaBuilder()
+            profile = builder.build_from_texts(
+                texts, name=user, source_type="transcript"
+            )
+            output_path = Path(f"config/personas/{user}_learned.toml")
+            profile.to_toml(output_path)
+            print(f"  Persona saved to: {output_path}")
+        else:
+            print("  No transcript data found for persona building.")
+
+
 def main() -> None:
     """CLI entry point with subcommands."""
     logging.basicConfig(
@@ -437,6 +540,10 @@ def main() -> None:
     # Handle non-app commands first (no need to create ZoomAutoApp)
     if args.command == "index":
         _run_index(args.paths, args.name)
+        return
+
+    if args.command == "learnings":
+        _run_learnings(args.user, args.summary, args.rebuild_persona)
         return
 
     settings = Settings()  # type: ignore[call-arg]

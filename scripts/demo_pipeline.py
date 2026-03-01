@@ -219,12 +219,14 @@ class DemoPipeline:
         knowledge_store: object | None = None,
         no_tts: bool = False,
         no_vad: bool = False,
+        user: str = "default",
     ) -> None:
         from zoom_auto.config import Settings
         from zoom_auto.context.manager import ContextManager
         from zoom_auto.llm.base import LLMProvider
         from zoom_auto.persona.builder import PersonaProfile
         from zoom_auto.persona.knowledge_store import KnowledgeStore
+        from zoom_auto.persona.learner import ConversationLearner
         from zoom_auto.pipeline.vad import VADProcessor
         from zoom_auto.response.decision import TriggerDetector
         from zoom_auto.response.generator import ResponseGenerator
@@ -238,6 +240,12 @@ class DemoPipeline:
         self.no_tts = no_tts
         self.no_vad = no_vad
         self.voice_sample = voice_sample
+        self.user = user
+
+        # Conversation learner
+        self.learner = ConversationLearner(
+            data_dir=Path("data/learnings"), user=user,
+        )
 
         # STT
         self.stt = FasterWhisperEngine(
@@ -284,6 +292,7 @@ class DemoPipeline:
                 if isinstance(knowledge_store, KnowledgeStore)
                 else None
             ),
+            learner=self.learner,
         )
 
     async def load_models(self) -> None:
@@ -348,6 +357,9 @@ class DemoPipeline:
             return
 
         bot_name = self.settings.zoom.bot_name
+
+        # Record utterance for learning
+        self.learner.record_utterance(speaker, text)
 
         # 1. Add to context
         await self.context_manager.add_transcript(
@@ -419,6 +431,13 @@ class DemoPipeline:
             confidence=decision.confidence,
             tts_time=tts_time,
             tokens=response.token_usage,
+        )
+
+        # Record bot response for learning
+        self.learner.record_bot_response(
+            trigger_reason=decision.reason.value,
+            response_text=response.text,
+            context_snippet=decision.context_snippet,
         )
 
         # 5. Record in context and turn manager
@@ -1008,10 +1027,14 @@ async def _async_main(args: argparse.Namespace) -> None:
         knowledge_store=knowledge_store,
         no_tts=args.no_tts,
         no_vad=args.no_vad,
+        user=args.user,
     )
 
     # Load models
     await pipeline.load_models()
+
+    # Start learning session
+    pipeline.learner.start_session()
 
     try:
         if args.input_file:
@@ -1030,6 +1053,19 @@ async def _async_main(args: argparse.Namespace) -> None:
                 user=args.user,
             )
     finally:
+        # End learning session and show summary
+        session = pipeline.learner.end_session()
+        print(f"\n{_CYAN}Session learnings saved:{_RESET}")
+        print(f"   Transcript: {len(session.transcript)} utterances")
+        print(
+            f"   Topics: "
+            f"{', '.join(session.topics_discussed) or 'none detected'}"
+        )
+        print(f"   Meeting type: {session.meeting_type}")
+        print(f"   New vocabulary: {len(session.vocabulary_learned)} words")
+        print(
+            f"   Saved to: data/learnings/{args.user}/sessions/"
+        )
         await pipeline.unload_models()
 
 
