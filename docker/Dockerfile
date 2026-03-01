@@ -66,10 +66,14 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 # Install Python dependencies (as root so uv can write to its cache)
-RUN uv sync --no-dev --frozen
+# First, install only third-party deps (no project itself) for Docker layer caching
+RUN uv sync --no-install-project --no-dev --frozen
 
 # Copy application source
 COPY src/ src/
+
+# Now install the project itself
+RUN uv sync --no-dev --frozen
 
 # Copy default config
 COPY config/ config/
@@ -79,6 +83,9 @@ COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/
 
 # Create data directory (will be volume-mounted at runtime)
 RUN mkdir -p data && chown -R appuser:appuser /app
+
+# Create cache directory for non-root user
+RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser
 
 # Switch to non-root user
 USER appuser

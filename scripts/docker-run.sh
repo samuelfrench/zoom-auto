@@ -4,6 +4,7 @@
 #   ./scripts/docker-run.sh          # build + run
 #   ./scripts/docker-run.sh --build  # force rebuild
 #   ./scripts/docker-run.sh --down   # stop and remove container
+#   ./scripts/docker-run.sh --logs   # tail container logs
 
 set -euo pipefail
 
