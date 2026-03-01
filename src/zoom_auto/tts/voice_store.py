@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,15 +23,16 @@ import soundfile as sf
 
 from zoom_auto.config import TTSConfig
 from zoom_auto.tts.audio_validation import (
-    AudioQualityReport,
-    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     TARGET_SUBTYPE,
+    AudioQualityReport,
     convert_to_target_format,
     normalize_audio,
     validate_audio_data,
     validate_audio_file,
 )
+
+_VALID_USERNAME = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 logger = logging.getLogger(__name__)
 
@@ -212,8 +214,21 @@ class VoiceStore:
         """Base directory for all voice samples."""
         return self._base_dir
 
+    @staticmethod
+    def _validate_user(user: str) -> None:
+        """Validate username to prevent path traversal."""
+        if not _VALID_USERNAME.match(user):
+            raise ValueError(
+                f"Invalid username: {user!r}. "
+                "Must be 1-64 chars of letters, digits, hyphens, or underscores."
+            )
+
     def _user_dir(self, user: str) -> Path:
         """Get the directory for a user's voice samples."""
+        self._validate_user(user)
+        resolved = (self._base_dir / user).resolve()
+        if not str(resolved).startswith(str(self._base_dir.resolve())):
+            raise ValueError("Path traversal detected")
         return self._base_dir / user
 
     def _segments_dir(self, user: str) -> Path:
@@ -250,7 +265,7 @@ class VoiceStore:
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning("Failed to load metadata for %s: %s", user, e)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         return UserVoiceMetadata(user=user, created_at=now, updated_at=now)
 
     def _save_metadata(self, metadata: UserVoiceMetadata) -> None:
@@ -259,7 +274,7 @@ class VoiceStore:
         Args:
             metadata: The metadata to save.
         """
-        metadata.updated_at = datetime.now(timezone.utc).isoformat()
+        metadata.updated_at = datetime.now(UTC).isoformat()
         metadata.total_valid_segments = sum(1 for s in metadata.segments if s.is_valid)
 
         meta_path = self._metadata_path(metadata.user)
@@ -292,7 +307,7 @@ class VoiceStore:
         """
         self._ensure_user_dirs(user)
 
-        segment_id = str(uuid.uuid4())[:8]
+        segment_id = uuid.uuid4().hex[:12]
         segments_dir = self._segments_dir(user)
 
         # Write the raw upload to a temp file
@@ -344,7 +359,7 @@ class VoiceStore:
             rms_amplitude=quality.rms_amplitude,
             has_clipping=quality.has_clipping,
             is_valid=quality.is_valid,
-            recorded_at=datetime.now(timezone.utc).isoformat(),
+            recorded_at=datetime.now(UTC).isoformat(),
         )
 
         # Update metadata
@@ -385,7 +400,7 @@ class VoiceStore:
         """
         self._ensure_user_dirs(user)
 
-        segment_id = str(uuid.uuid4())[:8]
+        segment_id = uuid.uuid4().hex[:12]
         target_path = self._segments_dir(user) / f"{segment_id}.wav"
 
         # Ensure float64 for processing
@@ -427,7 +442,7 @@ class VoiceStore:
             rms_amplitude=quality.rms_amplitude,
             has_clipping=quality.has_clipping,
             is_valid=quality.is_valid,
-            recorded_at=datetime.now(timezone.utc).isoformat(),
+            recorded_at=datetime.now(UTC).isoformat(),
         )
 
         # Update metadata
@@ -532,7 +547,9 @@ class VoiceStore:
             "has_combined_reference": has_combined,
             "combined_duration_seconds": metadata.combined_duration_seconds,
             "ready_for_tts": has_combined and metadata.combined_duration_seconds >= 120.0,
-            "recommendation": _get_recommendation(len(valid_segments), total_duration, has_combined),
+            "recommendation": _get_recommendation(
+                len(valid_segments), total_duration, has_combined
+            ),
         }
 
     async def combine_reference(

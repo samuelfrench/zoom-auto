@@ -234,7 +234,6 @@ def _spectral_snr(data: np.ndarray) -> float:
         return 0.0
 
     # Compute FFT magnitudes
-    n = len(data)
     fft_mags = np.abs(np.fft.rfft(data))
     power_spectrum = fft_mags**2
 

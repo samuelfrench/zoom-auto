@@ -9,7 +9,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +17,6 @@ import soundfile as sf
 
 from zoom_auto.tts.audio_validation import (
     TARGET_SAMPLE_RATE,
-    AudioQualityReport,
     normalize_audio,
     validate_audio_data,
     validate_audio_file,
@@ -29,7 +27,6 @@ from zoom_auto.tts.voice_store import (
     UserVoiceMetadata,
     VoiceStore,
 )
-
 
 # --- Fixtures ---
 

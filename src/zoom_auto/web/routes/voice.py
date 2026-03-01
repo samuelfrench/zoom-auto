@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -175,11 +174,11 @@ def _quality_to_response(q: AudioQualityReport) -> QualityResponse:
 
 
 def _get_extension(filename: str | None) -> str:
-    """Extract and validate file extension from a filename."""
+    """Extract file extension from a filename."""
     if not filename:
         return "wav"
     ext = Path(filename).suffix.lstrip(".").lower()
-    return ext if ext in ALLOWED_EXTENSIONS else "wav"
+    return ext if ext else "wav"
 
 
 # --- Endpoints ---

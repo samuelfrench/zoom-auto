@@ -6,17 +6,12 @@ Priority: environment variables > local.toml > default.toml
 
 from __future__ import annotations
 
-import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 
 class ServerConfig(BaseModel):
@@ -136,7 +131,7 @@ class Settings(BaseSettings):
     vad: VADConfig = VADConfig()
 
     @classmethod
-    def from_toml(cls, config_dir: str | Path = "config") -> "Settings":
+    def from_toml(cls, config_dir: str | Path = "config") -> Settings:
         """Load settings from TOML files in the given config directory."""
         config_path = Path(config_dir)
         defaults = _load_toml(config_path / "default.toml")

@@ -9,12 +9,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class MeetingEvent(str, Enum):
+class MeetingEvent(StrEnum):
     """Types of meeting events."""
 
     MEETING_JOINED = "meeting_joined"
@@ -36,8 +37,6 @@ class ParticipantInfo:
     is_host: bool = False
     is_muted: bool = False
 
-
-from typing import Any
 
 EventCallback = Callable[[MeetingEvent, dict[str, Any]], None]
 

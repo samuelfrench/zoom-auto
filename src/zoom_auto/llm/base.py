@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
+from enum import StrEnum
 
 
-class LLMRole(str, Enum):
+class LLMRole(StrEnum):
     """Message roles for LLM conversations."""
 
     SYSTEM = "system"

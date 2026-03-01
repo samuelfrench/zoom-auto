@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from zoom_auto.config import ResponseConfig
 from zoom_auto.llm.base import LLMProvider
@@ -16,7 +16,7 @@ from zoom_auto.llm.base import LLMProvider
 logger = logging.getLogger(__name__)
 
 
-class TriggerReason(str, Enum):
+class TriggerReason(StrEnum):
     """Reasons why the bot was triggered to speak."""
 
     DIRECT_ADDRESS = "direct_address"
