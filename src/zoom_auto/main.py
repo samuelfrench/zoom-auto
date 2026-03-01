@@ -104,6 +104,7 @@ class ZoomAutoApp:
         """Initialize all components and start the application."""
         logger.info("Starting Zoom Auto v%s", "0.1.0")
         self._running = True
+        self._loop = asyncio.get_running_loop()
 
         # Load ML models (STT, TTS, VAD)
         logger.info("Loading ML models...")
@@ -237,7 +238,9 @@ class ZoomAutoApp:
             event: MeetingEvent, data: dict[str, Any]
         ) -> None:
             logger.info("Meeting ended -- initiating shutdown")
-            asyncio.ensure_future(self.stop())
+            self._loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self.stop())
+            )
 
         def on_speaker_changed(
             event: MeetingEvent, data: dict[str, Any]
@@ -275,7 +278,7 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.ensure_future(app.stop()))
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(app.stop()))
 
     try:
         loop.run_until_complete(app.start())

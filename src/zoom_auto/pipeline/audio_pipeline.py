@@ -53,7 +53,6 @@ class AudioPipeline:
         self._bot_speaking = False
         self._capture_task: asyncio.Task[None] | None = None
         self._tts_task: asyncio.Task[None] | None = None
-        self._lock = asyncio.Lock()
 
         # Callback invoked when a complete utterance is transcribed.
         # Signature: async callback(speaker_name: str, text: str) -> None
@@ -118,12 +117,30 @@ class AudioPipeline:
         if not text.strip():
             return
 
-        async with self._lock:
-            self._bot_speaking = True
+        self._bot_speaking = True
+        voice_ref = self._voice_sample
 
+        self._tts_task = asyncio.create_task(
+            self._do_tts_and_send(text, voice_ref)
+        )
+        try:
+            await self._tts_task
+        finally:
+            self._tts_task = None
+            self._bot_speaking = False
+
+    async def _do_tts_and_send(
+        self, text: str, voice_ref: Path | None
+    ) -> None:
+        """Synthesize and send audio. Designed to run as a cancellable task.
+
+        Args:
+            text: The response text to speak.
+            voice_ref: Optional voice sample path for TTS cloning.
+        """
         try:
             logger.info("Synthesizing response: %s", text[:80])
-            result = await self.tts.synthesize(text, self._voice_sample)
+            result = await self.tts.synthesize(text, voice_ref)
 
             # Check if we were interrupted during synthesis
             if not self._bot_speaking:
@@ -143,14 +160,10 @@ class AudioPipeline:
             raise
         except Exception:
             logger.exception("Error in send_response")
-        finally:
-            async with self._lock:
-                self._bot_speaking = False
 
     async def stop_speaking(self) -> None:
         """Stop any in-progress TTS playback (interruption support)."""
-        async with self._lock:
-            self._bot_speaking = False
+        self._bot_speaking = False
 
         if self._tts_task is not None:
             self._tts_task.cancel()
@@ -161,11 +174,7 @@ class AudioPipeline:
             self._tts_task = None
 
         # Drain the sender queue to stop audio output
-        while not self.sender._queue.empty():
-            try:
-                self.sender._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
+        self.sender.clear_pending()
 
         logger.debug("Stopped speaking (TTS interrupted)")
 

@@ -129,19 +129,16 @@ class ConversationLoop:
 
         # 2. Update turn manager -- someone else spoke
         self.turn_manager.record_other_speaker()
-        self.turn_manager.on_speech_detected()
 
         # 3. Check for interruption -- if bot is speaking and someone
         #    else starts talking, stop the bot
-        if self.turn_manager.should_interrupt():
+        if self.audio_pipeline.is_bot_speaking:
             logger.info("Interruption detected -- stopping bot speech")
             await self.audio_pipeline.stop_speaking()
             self.turn_manager.mark_bot_done()
 
-        # 4. Signal silence after processing the utterance
-        self.turn_manager.on_silence_detected()
-
-        # 5. Check if we should respond
+        # 4. Check if we should respond
+        #    someone_speaking reflects real-time VAD state from SDK events
         # Build recent transcript for trigger detection
         context = await self.context_manager.get_context()
         recent_text = "\n".join(context.recent_transcript)
@@ -161,12 +158,12 @@ class ConversationLoop:
             )
             return None
 
-        # 6. Check turn manager approval
+        # 5. Check turn manager approval
         if not self.turn_manager.can_speak():
             logger.debug("Turn manager blocked response")
             return None
 
-        # 7. Generate response
+        # 6. Generate response
         logger.info(
             "Generating response (trigger=%s, confidence=%.2f)",
             decision.reason,

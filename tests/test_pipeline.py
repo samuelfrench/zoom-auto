@@ -76,7 +76,7 @@ def mock_sender() -> AsyncMock:
     """Mock AudioSender."""
     sender = AsyncMock(spec=AudioSender)
     sender.is_active = True
-    sender._queue = asyncio.Queue()
+    sender.clear_pending = MagicMock()
     return sender
 
 
@@ -570,15 +570,10 @@ class TestAudioPipelineInterruption:
         audio_pipeline: AudioPipeline,
         mock_sender: AsyncMock,
     ) -> None:
-        """stop_speaking should drain the sender queue."""
-        # Put some fake data in the queue
-        await mock_sender._queue.put(b"\x00" * 100)
-        await mock_sender._queue.put(b"\x00" * 100)
-        assert mock_sender._queue.qsize() == 2
-
+        """stop_speaking should call clear_pending on sender."""
         await audio_pipeline.stop_speaking()
 
-        assert mock_sender._queue.qsize() == 0
+        mock_sender.clear_pending.assert_called_once()
 
 
 # ===================================================================== #
@@ -686,10 +681,8 @@ class TestConversationLoopProcessUtterance:
             "Alice", "Hey TestBot, help me"
         )
 
-        # The interruption path fires (bot_speaking + speech_detected),
-        # which calls stop_speaking and mark_bot_done. After that,
-        # can_speak() may return True again. This test confirms
-        # the interruption handling path runs without error.
+        # can_speak() returns False because bot_speaking is True,
+        # so the response is blocked even though trigger says respond.
 
     @pytest.mark.asyncio
     async def test_process_utterance_interruption_stops_bot(
@@ -700,6 +693,7 @@ class TestConversationLoopProcessUtterance:
     ) -> None:
         """If bot is speaking and someone else talks, bot should stop."""
         turn_manager.mark_bot_speaking()
+        audio_pipeline._bot_speaking = True
         assert turn_manager.bot_speaking is True
 
         await conversation_loop.process_utterance(

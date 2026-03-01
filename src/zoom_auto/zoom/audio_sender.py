@@ -153,6 +153,14 @@ class AudioSender:
             await self._queue.put(chunk)
             offset += frame_bytes
 
+    def clear_pending(self) -> None:
+        """Discard all queued audio frames."""
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
     @property
     def is_active(self) -> bool:
         """Whether the audio sender is active."""
