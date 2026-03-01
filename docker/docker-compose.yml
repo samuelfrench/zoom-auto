@@ -1,5 +1,6 @@
 services:
   zoom-auto:
+    container_name: zoom-auto
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -12,10 +13,28 @@ services:
               count: 1
               capabilities: [gpu]
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ../data:/app/data
       - ../config:/app/config
+      # PulseAudio socket for audio I/O inside the container
+      - /run/user/1000/pulse:/run/user/1000/pulse:ro
+      - ${HOME}/.config/pulse/cookie:/home/appuser/.config/pulse/cookie:ro
     env_file:
       - ../.env
+    environment:
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     restart: unless-stopped
