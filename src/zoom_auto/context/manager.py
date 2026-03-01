@@ -8,6 +8,7 @@ unified prompt for the LLM response generator.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -83,15 +84,25 @@ class ContextManager:
     ) -> None:
         self.config = config if config is not None else ContextConfig()
         self._llm = llm
-        self._transcript = transcript if transcript is not None else TranscriptAccumulator()
-        self._speaker_tracker = speaker_tracker if speaker_tracker is not None else SpeakerTracker()
-        self._meeting_state = meeting_state if meeting_state is not None else MeetingState(config=self.config)
+        self._transcript = (
+            transcript if transcript is not None else TranscriptAccumulator()
+        )
+        self._speaker_tracker = (
+            speaker_tracker if speaker_tracker is not None else SpeakerTracker()
+        )
+        self._meeting_state = (
+            meeting_state if meeting_state is not None
+            else MeetingState(config=self.config)
+        )
         self._window = ContextWindow()
 
         # Summarization state
         self._summaries: list[str] = []
         self._last_summary_time: float = time.time()
         self._summarized_up_to_segment_id: int = 0
+
+        # Lock for concurrent access protection
+        self._lock = asyncio.Lock()
 
     @property
     def transcript(self) -> TranscriptAccumulator:
@@ -134,23 +145,24 @@ class ContextManager:
         if not text.strip():
             return
 
-        # Add to transcript
-        self._transcript.add(
-            speaker=speaker,
-            text=text,
-            timestamp=timestamp,
-        )
+        async with self._lock:
+            # Add to transcript
+            self._transcript.add(
+                speaker=speaker,
+                text=text,
+                timestamp=timestamp,
+            )
 
-        # Update speaker tracking
-        if speaker_id is not None:
-            self._speaker_tracker.register_speaker(speaker_id, speaker)
-            self._speaker_tracker.record_utterance(speaker_id)
+            # Update speaker tracking
+            if speaker_id is not None:
+                self._speaker_tracker.register_speaker(speaker_id, speaker)
+                self._speaker_tracker.record_utterance(speaker_id)
 
-        # Update participants in meeting state
-        self._meeting_state.add_participant(speaker)
+            # Update participants in meeting state
+            self._meeting_state.add_participant(speaker)
 
-        # Check if we should summarize
-        await self._maybe_summarize()
+            # Check if we should summarize
+            await self._maybe_summarize()
 
         logger.debug("Added transcript: %s: %s", speaker, text[:50])
 
@@ -226,7 +238,6 @@ class ContextManager:
                 return True
         except Exception:
             logger.exception("Failed to summarize transcript")
-            return False
 
         return False
 
@@ -390,7 +401,8 @@ class ContextManager:
         if meeting_metadata:
             system_parts.append(f"\n## Meeting Info\n{meeting_metadata}")
 
-        system_content = "\n".join(system_parts) if system_parts else "You are an AI meeting assistant."
+        default_system = "You are an AI meeting assistant."
+        system_content = "\n".join(system_parts) if system_parts else default_system
 
         # Build user context message
         context_parts = []
@@ -414,7 +426,8 @@ class ContextManager:
                 f"## Meeting State\n{self._window.meeting_context}"
             )
 
-        context_content = "\n\n".join(context_parts) if context_parts else "Meeting has just started."
+        default_context = "Meeting has just started."
+        context_content = "\n\n".join(context_parts) if context_parts else default_context
 
         return [
             LLMMessage(role=LLMRole.SYSTEM, content=system_content),

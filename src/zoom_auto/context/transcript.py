@@ -89,7 +89,9 @@ class TranscriptAccumulator:
         """
         return self._entries[-n:]
 
-    def get_window(self, seconds: float, reference_time: datetime | None = None) -> list[TranscriptEntry]:
+    def get_window(
+        self, seconds: float, reference_time: datetime | None = None,
+    ) -> list[TranscriptEntry]:
         """Get entries within a time window.
 
         Returns all entries from the last `seconds` seconds relative
@@ -109,7 +111,9 @@ class TranscriptAccumulator:
             if e.timestamp.timestamp() >= cutoff
         ]
 
-    def get_before(self, seconds: float, reference_time: datetime | None = None) -> list[TranscriptEntry]:
+    def get_before(
+        self, seconds: float, reference_time: datetime | None = None,
+    ) -> list[TranscriptEntry]:
         """Get entries older than the given time window.
 
         Returns all entries from before `seconds` seconds ago relative

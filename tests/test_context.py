@@ -10,7 +10,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,11 +17,10 @@ import pytest
 
 from zoom_auto.config import ContextConfig
 from zoom_auto.context.manager import ContextManager, ContextWindow, estimate_tokens
-from zoom_auto.context.meeting_state import ActionItem, Decision, MeetingState
-from zoom_auto.context.speaker_tracker import SpeakerInfo, SpeakerTracker
-from zoom_auto.context.transcript import TranscriptAccumulator, TranscriptEntry
-from zoom_auto.llm.base import LLMMessage, LLMResponse, LLMRole
-
+from zoom_auto.context.meeting_state import MeetingState
+from zoom_auto.context.speaker_tracker import SpeakerTracker
+from zoom_auto.context.transcript import TranscriptAccumulator
+from zoom_auto.llm.base import LLMResponse, LLMRole
 
 # --- Fixtures ---
 
@@ -760,7 +758,9 @@ class TestContextManager:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_summarize_already_summarized(self, context_manager_with_llm: ContextManager) -> None:
+    async def test_summarize_already_summarized(
+        self, context_manager_with_llm: ContextManager,
+    ) -> None:
         """summarize_if_needed should not re-summarize already-summarized entries."""
         cm = context_manager_with_llm
         old_time = datetime.now() - timedelta(seconds=300)
@@ -791,7 +791,9 @@ class TestContextManager:
         assert len(cm._summaries) < 10
 
     @pytest.mark.asyncio
-    async def test_prune_summaries_under_limit(self, context_manager_with_llm: ContextManager) -> None:
+    async def test_prune_summaries_under_limit(
+        self, context_manager_with_llm: ContextManager,
+    ) -> None:
         """Pruning should not happen when under token limit."""
         cm = context_manager_with_llm
         cm._summaries.append("Short summary")
