@@ -1,0 +1,21 @@
+services:
+  zoom-auto:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../data:/app/data
+      - ../config:/app/config
+    env_file:
+      - ../.env
+    restart: unless-stopped

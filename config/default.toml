@@ -1,0 +1,73 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[zoom]
+# Bot display name in meetings
+bot_name = "AI Assistant"
+# Audio sample rate (Hz)
+sample_rate = 16000
+# Audio channels
+channels = 1
+
+[stt]
+# Whisper model size
+model = "large-v3-turbo"
+# Compute type for faster-whisper
+compute_type = "int8"
+# Language (empty = auto-detect)
+language = "en"
+# Beam size for decoding
+beam_size = 5
+
+[tts]
+# Voice sample directory
+voice_sample_dir = "data/voice_samples"
+# Output sample rate
+sample_rate = 22050
+# Streaming chunk size (samples)
+chunk_size = 4096
+
+[llm]
+# Primary provider: "claude" or "ollama"
+provider = "claude"
+# Claude model for responses
+response_model = "claude-sonnet-4-20250514"
+# Claude model for quick decisions
+decision_model = "claude-haiku-4-20250414"
+# Ollama model (fallback)
+ollama_model = "llama3.1:8b"
+# Max tokens for response generation
+max_tokens = 300
+# Temperature for response generation
+temperature = 0.7
+
+[persona]
+# Path to persona data directory
+data_dir = "data/persona"
+# Communication style weight (0-1, higher = more stylized)
+style_weight = 0.7
+
+[context]
+# Max transcript tokens in sliding window
+max_window_tokens = 4000
+# Summarization threshold (tokens)
+summarize_at = 3000
+# Max meeting state items
+max_action_items = 20
+
+[response]
+# Minimum seconds between responses
+cooldown_seconds = 10.0
+# Confidence threshold to trigger a response (0-1)
+trigger_threshold = 0.6
+# Max consecutive responses before forced cooldown
+max_consecutive = 3
+
+[vad]
+# Silero VAD threshold (0-1)
+threshold = 0.5
+# Minimum speech duration (seconds)
+min_speech_duration = 0.25
+# Minimum silence duration to end speech (seconds)
+min_silence_duration = 0.3
