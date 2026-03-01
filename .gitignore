@@ -59,3 +59,4 @@ config/local.toml
 # Node / Frontend
 node_modules/
 frontend/dist/
+*.tsbuildinfo
