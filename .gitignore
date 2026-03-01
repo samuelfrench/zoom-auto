@@ -55,3 +55,7 @@ config/local.toml
 
 # Playwright
 .playwright-mcp/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
