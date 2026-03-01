@@ -25,7 +25,6 @@ from zoom_auto.stt.faster_whisper import (
     _pcm_bytes_to_float32,
 )
 
-
 # --- Fixtures ---
 
 

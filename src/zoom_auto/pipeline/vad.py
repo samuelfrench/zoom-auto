@@ -105,6 +105,12 @@ class VADProcessor:
         # Internal chunk buffer for reframing to Silero's expected size
         self._chunk_buffer = bytearray()
 
+        # Lock for concurrent access protection
+        self._lock = asyncio.Lock()
+
+        # Cached torch module (set during load_model)
+        self._torch = None
+
     async def load_model(self) -> None:
         """Load the Silero VAD model.
 
@@ -132,6 +138,10 @@ class VADProcessor:
         self._model, self._model_utils = await loop.run_in_executor(
             _executor, _load
         )
+
+        # Cache torch for hot-path use
+        import torch
+        self._torch = torch
 
     async def unload_model(self) -> None:
         """Unload the VAD model from memory."""
@@ -189,17 +199,20 @@ class VADProcessor:
                 "Silero VAD model not loaded. Call load_model() first."
             )
 
-        confidence = await self._get_speech_prob(pcm_data)
-        is_speech = confidence >= self._config.threshold
+        async with self._lock:
+            confidence = await self._get_speech_prob(pcm_data)
+            is_speech = confidence >= self._config.threshold
 
-        current_time = self._total_samples_processed / self._sample_rate
+            num_samples = len(pcm_data) // _BYTES_PER_SAMPLE
+            self._total_samples_processed += num_samples
+            current_time = self._total_samples_processed / self._sample_rate
 
-        return VADResult(
-            is_speech=is_speech,
-            confidence=confidence,
-            speech_start=current_time if is_speech and not self._in_speech else None,
-            speech_end=current_time if not is_speech and self._in_speech else None,
-        )
+            return VADResult(
+                is_speech=is_speech,
+                confidence=confidence,
+                speech_start=current_time if is_speech and not self._in_speech else None,
+                speech_end=current_time if not is_speech and self._in_speech else None,
+            )
 
     async def process_chunk(self, audio_chunk: bytes) -> VADEvent | None:
         """Process an audio chunk and detect speech boundaries.
@@ -226,24 +239,25 @@ class VADProcessor:
                 "Silero VAD model not loaded. Call load_model() first."
             )
 
-        # Add incoming data to our reframing buffer
-        self._chunk_buffer.extend(audio_chunk)
+        async with self._lock:
+            # Add incoming data to our reframing buffer
+            self._chunk_buffer.extend(audio_chunk)
 
-        silero_chunk_bytes = _SILERO_CHUNK_SAMPLES * _BYTES_PER_SAMPLE
-        event: VADEvent | None = None
+            silero_chunk_bytes = _SILERO_CHUNK_SAMPLES * _BYTES_PER_SAMPLE
+            event: VADEvent | None = None
 
-        # Process all complete Silero-sized chunks
-        while len(self._chunk_buffer) >= silero_chunk_bytes:
-            chunk = bytes(self._chunk_buffer[:silero_chunk_bytes])
-            del self._chunk_buffer[:silero_chunk_bytes]
+            # Process all complete Silero-sized chunks
+            while len(self._chunk_buffer) >= silero_chunk_bytes:
+                chunk = bytes(self._chunk_buffer[:silero_chunk_bytes])
+                del self._chunk_buffer[:silero_chunk_bytes]
 
-            result = await self._process_silero_chunk(chunk)
-            if result is not None:
-                # Return the most recent event (speech_end takes priority
-                # since it carries the buffer)
-                event = result
+                result = await self._process_silero_chunk(chunk)
+                if result is not None:
+                    # Return the most recent event (speech_end takes priority
+                    # since it carries the buffer)
+                    event = result
 
-        return event
+            return event
 
     async def get_speech_segment(self) -> bytes | None:
         """Get a complete speech segment if one has been detected.
@@ -341,7 +355,7 @@ class VADProcessor:
         Returns:
             Speech probability between 0 and 1.
         """
-        import torch
+        torch = self._torch
 
         # Convert 16-bit PCM to float32 tensor
         audio_int16 = np.frombuffer(pcm_chunk, dtype=np.int16)

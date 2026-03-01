@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import struct
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 

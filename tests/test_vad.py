@@ -21,14 +21,12 @@ import torch
 
 from zoom_auto.config import VADConfig
 from zoom_auto.pipeline.vad import (
+    _BYTES_PER_SAMPLE,
+    _SILERO_CHUNK_SAMPLES,
     VADEvent,
     VADProcessor,
     VADResult,
-    _BYTES_PER_SAMPLE,
-    _SAMPLE_RATE,
-    _SILERO_CHUNK_SAMPLES,
 )
-
 
 # --- Fixtures ---
 
@@ -63,6 +61,7 @@ def loaded_processor(
     """Create a processor with a pre-loaded mock model."""
     processor._model = mock_vad_model
     processor._model_utils = MagicMock()
+    processor._torch = torch
     return processor
 
 
