@@ -10,25 +10,26 @@ import asyncio
 import json
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from zoom_auto.main import ZoomAutoApp
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # Module-level reference to the app instance
-_app_instance: object | None = None
+_app_instance: ZoomAutoApp | None = None
 
 # Connected WebSocket clients
 _clients: list[WebSocket] = []
 
-# Event queue for broadcasting
-_event_queue: asyncio.Queue[dict] | None = None
 
-
-def set_app_instance(app: object) -> None:
+def set_app_instance(app: ZoomAutoApp) -> None:
     """Set the ZoomAutoApp reference for dashboard data.
 
     Args:
@@ -36,32 +37,6 @@ def set_app_instance(app: object) -> None:
     """
     global _app_instance
     _app_instance = app
-
-
-def get_event_queue() -> asyncio.Queue[dict]:
-    """Get or create the event queue for broadcasting."""
-    global _event_queue
-    if _event_queue is None:
-        _event_queue = asyncio.Queue()
-    return _event_queue
-
-
-async def broadcast_event(event: dict) -> None:
-    """Broadcast an event to all connected WebSocket clients.
-
-    Args:
-        event: The event dict to broadcast.
-    """
-    disconnected: list[WebSocket] = []
-    for ws in _clients:
-        try:
-            await ws.send_json(event)
-        except Exception:
-            disconnected.append(ws)
-
-    for ws in disconnected:
-        if ws in _clients:
-            _clients.remove(ws)
 
 
 class DashboardState(BaseModel):
@@ -156,53 +131,38 @@ def _build_dashboard_state() -> DashboardState:
         return DashboardState()
 
     app = _app_instance
-    connected = False
     meeting_id = None
-    participants: list[str] = []
     transcript: list[dict] = []
-    decisions: list[str] = []
-    action_items: list[str] = []
 
     # Zoom connection
-    if hasattr(app, "zoom_client"):
-        connected = app.zoom_client.is_connected
-        if connected and app.zoom_client.meeting_info:
-            meeting_id = app.zoom_client.meeting_info.meeting_id
+    connected = app.zoom_client.is_connected
+    if connected and app.zoom_client.meeting_info:
+        meeting_id = app.zoom_client.meeting_info.meeting_id
 
     # Context data
-    if hasattr(app, "context_manager"):
-        ctx = app.context_manager
+    ctx = app.context_manager
+    participants = list(ctx.meeting_state.participants)
+    decisions = list(ctx.meeting_state.decisions)
+    action_items = [str(item) for item in ctx.meeting_state.action_items]
 
-        # Participants
-        if hasattr(ctx, "meeting_state"):
-            participants = list(ctx.meeting_state.participants)
-
-            # Decisions and action items
-            if hasattr(ctx.meeting_state, "decisions"):
-                decisions = list(ctx.meeting_state.decisions)
-            if hasattr(ctx.meeting_state, "action_items"):
-                action_items = [
-                    str(item) for item in ctx.meeting_state.action_items
-                ]
-
-        # Transcript entries (last 50)
-        if hasattr(ctx, "transcript") and hasattr(ctx.transcript, "entries"):
-            entries = ctx.transcript.entries[-50:]
-            for entry in entries:
-                transcript.append({
-                    "speaker": entry.speaker,
-                    "text": entry.text,
-                    "timestamp": entry.timestamp.isoformat()
-                    if hasattr(entry, "timestamp") and entry.timestamp
-                    else "",
-                })
+    # Transcript entries (last 50)
+    entries = ctx.transcript.entries[-50:]
+    for entry in entries:
+        transcript.append({
+            "speaker": entry.speaker,
+            "text": entry.text,
+            "timestamp": entry.timestamp.isoformat()
+            if entry.timestamp
+            else "",
+        })
 
     # Duration
-    from zoom_auto.web.routes.meetings import _meeting_start_time
+    from zoom_auto.web.routes.meetings import get_meeting_start_time
 
     duration = 0.0
-    if connected and _meeting_start_time is not None:
-        duration = round(time.time() - _meeting_start_time, 1)
+    meeting_start = get_meeting_start_time()
+    if connected and meeting_start is not None:
+        duration = round(time.time() - meeting_start, 1)
 
     return DashboardState(
         connected=connected,

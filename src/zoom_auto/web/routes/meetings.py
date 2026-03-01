@@ -8,20 +8,24 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from zoom_auto.main import ZoomAutoApp
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # Module-level reference to the ZoomAutoApp instance
-_app_instance: object | None = None
+_app_instance: ZoomAutoApp | None = None
 _meeting_start_time: float | None = None
 
 
-def set_app_instance(app: object) -> None:
+def set_app_instance(app: ZoomAutoApp) -> None:
     """Set the ZoomAutoApp reference for meeting management.
 
     Args:
@@ -29,6 +33,11 @@ def set_app_instance(app: object) -> None:
     """
     global _app_instance
     _app_instance = app
+
+
+def get_meeting_start_time() -> float | None:
+    """Get the meeting start time (epoch seconds), or None if not in a meeting."""
+    return _meeting_start_time
 
 
 class MeetingJoinRequest(BaseModel):
@@ -68,14 +77,14 @@ async def join_meeting(request: MeetingJoinRequest) -> dict[str, str]:
     app = _app_instance
 
     # Check if already connected
-    if hasattr(app, "zoom_client") and app.zoom_client.is_connected:
+    if app.zoom_client.is_connected:
         raise HTTPException(
             status_code=409,
             detail="Already connected to a meeting. Leave first.",
         )
 
     # Update display name in settings if provided
-    if request.display_name and hasattr(app, "settings"):
+    if request.display_name:
         app.settings.zoom.bot_name = request.display_name
 
     try:
@@ -89,10 +98,10 @@ async def join_meeting(request: MeetingJoinRequest) -> dict[str, str]:
             "message": f"Joining meeting {request.meeting_id}",
         }
     except Exception as e:
-        logger.error("Failed to join meeting: %s", e)
+        logger.error("Failed to join meeting: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to join meeting: {e}",
+            detail="Failed to join meeting. Check server logs for details.",
         ) from e
 
 
@@ -109,19 +118,18 @@ async def leave_meeting() -> dict[str, str]:
 
     app = _app_instance
 
-    if hasattr(app, "zoom_client") and not app.zoom_client.is_connected:
+    if not app.zoom_client.is_connected:
         return {"status": "ok", "message": "Not currently in a meeting"}
 
     try:
-        if hasattr(app, "zoom_client"):
-            await app.zoom_client.leave()
+        await app.zoom_client.leave()
         _meeting_start_time = None
         return {"status": "ok", "message": "Left the meeting"}
     except Exception as e:
-        logger.error("Failed to leave meeting: %s", e)
+        logger.error("Failed to leave meeting: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to leave meeting: {e}",
+            detail="Failed to leave meeting. Check server logs for details.",
         ) from e
 
 
@@ -140,28 +148,21 @@ async def get_meeting_status() -> MeetingStatusResponse:
     responses_count = 0
 
     # Check Zoom connection
-    if hasattr(app, "zoom_client"):
-        connected = app.zoom_client.is_connected
-        if connected and app.zoom_client.meeting_info:
-            meeting_id = app.zoom_client.meeting_info.meeting_id
+    connected = app.zoom_client.is_connected
+    if connected and app.zoom_client.meeting_info:
+        meeting_id = app.zoom_client.meeting_info.meeting_id
 
     # Calculate duration
     if connected and _meeting_start_time is not None:
         duration_seconds = round(time.time() - _meeting_start_time, 1)
 
     # Get participant count from context manager
-    if hasattr(app, "context_manager"):
-        ctx = app.context_manager
-        if hasattr(ctx, "meeting_state"):
-            participants = len(ctx.meeting_state.participants)
-        if hasattr(ctx, "transcript"):
-            utterances_count = len(ctx.transcript.entries)
+    participants = len(app.context_manager.meeting_state.participants)
+    utterances_count = len(app.context_manager.transcript.entries)
 
     # Get response count from conversation loop
-    if hasattr(app, "conversation_loop"):
-        loop = app.conversation_loop
-        if hasattr(loop, "responses_generated"):
-            responses_count = loop.responses_generated
+    if hasattr(app.conversation_loop, "responses_generated"):
+        responses_count = app.conversation_loop.responses_generated
 
     return MeetingStatusResponse(
         connected=connected,

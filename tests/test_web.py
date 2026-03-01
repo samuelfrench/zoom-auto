@@ -55,7 +55,6 @@ def reset_module_state() -> None:
     meetings._meeting_start_time = None
     dashboard._app_instance = None
     dashboard._clients.clear()
-    dashboard._event_queue = None
 
 
 # --- Health Check ---

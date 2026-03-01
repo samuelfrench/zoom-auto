@@ -7,6 +7,7 @@ and middleware for the Zoom Auto web dashboard.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,10 +15,13 @@ from fastapi.staticfiles import StaticFiles
 
 from zoom_auto.config import Settings
 
+if TYPE_CHECKING:
+    from zoom_auto.main import ZoomAutoApp
+
 
 def create_app(
     settings: Settings | None = None,
-    zoom_app: object | None = None,
+    zoom_app: ZoomAutoApp | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 

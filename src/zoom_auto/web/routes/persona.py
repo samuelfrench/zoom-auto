@@ -6,6 +6,7 @@ used for response generation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from zoom_auto.config import PersonaConfig
-from zoom_auto.persona.builder import PersonaBuilder, PersonaProfile
+from zoom_auto.persona.builder import PersonaBuilder, PersonaProfile, TextSample
 
 logger = logging.getLogger(__name__)
 
@@ -149,24 +150,26 @@ async def update_persona_config(request: PersonaUpdateRequest) -> PersonaConfigR
     try:
         profile.to_toml(path)
     except Exception as e:
-        logger.error("Failed to save persona profile: %s", e)
+        logger.error("Failed to save persona profile: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Failed to save persona profile: {e}"
+            status_code=500,
+            detail="Failed to save persona profile. Check server logs for details.",
         ) from e
 
     return _profile_to_response(profile)
 
 
-@router.post("/rebuild")
-async def rebuild_persona() -> dict[str, str]:
-    """Trigger a persona rebuild from source data."""
-    config = _get_persona_config()
-    builder = PersonaBuilder(config=config)
-    data_dir = Path(config.data_dir)
+def _collect_samples_sync(data_dir: Path) -> list[TextSample]:
+    """Collect text samples from the data directory (blocking I/O).
 
-    # Collect text samples from the data directory
-    from zoom_auto.persona.builder import TextSample
+    This runs in a thread to avoid blocking the event loop.
 
+    Args:
+        data_dir: Path to the persona data directory.
+
+    Returns:
+        List of text samples found on disk.
+    """
     samples: list[TextSample] = []
 
     # Look for transcript files
@@ -187,17 +190,30 @@ async def rebuild_persona() -> dict[str, str]:
                 if text.strip():
                     samples.append(TextSample(text=text, source_type="writing"))
 
+    return samples
+
+
+@router.post("/rebuild")
+async def rebuild_persona() -> dict[str, str]:
+    """Trigger a persona rebuild from source data."""
+    config = _get_persona_config()
+    builder = PersonaBuilder(config=config)
+    data_dir = Path(config.data_dir)
+
+    # Collect samples in a thread to avoid blocking the event loop
+    samples = await asyncio.to_thread(_collect_samples_sync, data_dir)
+
     if not samples:
         # If no samples found, just save a default profile
         profile = PersonaProfile()
         path = _get_profile_path()
-        profile.to_toml(path)
+        await asyncio.to_thread(profile.to_toml, path)
         return {"status": "ok", "message": "No source data found, saved default profile"}
 
-    # Build the profile
-    profile = builder.build_from_samples(samples)
+    # Build the profile in a thread (CPU-intensive)
+    profile = await asyncio.to_thread(builder.build_from_samples, samples)
     path = _get_profile_path()
-    profile.to_toml(path)
+    await asyncio.to_thread(profile.to_toml, path)
 
     return {
         "status": "ok",
