@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-from typing import NoReturn
 
 from zoom_auto.config import Settings
 
@@ -45,7 +44,7 @@ class ZoomAutoApp:
         return self._running
 
 
-def main() -> NoReturn:
+def main() -> None:
     """CLI entry point."""
     settings = Settings()  # type: ignore[call-arg]
 

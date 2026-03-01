@@ -7,6 +7,23 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class TranscriptionSegment:
+    """A segment of transcribed speech with timing info.
+
+    Attributes:
+        text: The transcribed text for this segment.
+        start: Start time in seconds.
+        end: End time in seconds.
+        confidence: Confidence score for this segment (0-1).
+    """
+
+    text: str
+    start: float
+    end: float
+    confidence: float = 0.0
+
+
+@dataclass
 class TranscriptionResult:
     """Result from a speech-to-text transcription.
 
@@ -23,23 +40,6 @@ class TranscriptionResult:
     confidence: float = 0.0
     segments: list[TranscriptionSegment] = field(default_factory=list)
     duration_seconds: float = 0.0
-
-
-@dataclass
-class TranscriptionSegment:
-    """A segment of transcribed speech with timing info.
-
-    Attributes:
-        text: The transcribed text for this segment.
-        start: Start time in seconds.
-        end: End time in seconds.
-        confidence: Confidence score for this segment (0-1).
-    """
-
-    text: str
-    start: float
-    end: float
-    confidence: float = 0.0
 
 
 class STTEngine(ABC):

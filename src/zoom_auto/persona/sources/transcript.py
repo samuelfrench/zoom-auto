@@ -7,7 +7,6 @@ to build a realistic persona profile.
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 

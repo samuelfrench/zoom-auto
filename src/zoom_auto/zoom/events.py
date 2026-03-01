@@ -37,7 +37,9 @@ class ParticipantInfo:
     is_muted: bool = False
 
 
-EventCallback = Callable[[MeetingEvent, dict], None]
+from typing import Any
+
+EventCallback = Callable[[MeetingEvent, dict[str, Any]], None]
 
 
 class ZoomEventHandler:
