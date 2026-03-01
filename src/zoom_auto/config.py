@@ -27,6 +27,11 @@ class ZoomConfig(BaseModel):
     bot_name: str = "AI Assistant"
     sample_rate: int = 16000
     channels: int = 1
+    disclaimer_message: str = (
+        "AI assistant is participating in this meeting on behalf of the host. "
+        "Audio is processed locally."
+    )
+    send_disclaimer: bool = True
 
 
 class STTConfig(BaseModel):

@@ -6,8 +6,10 @@ the web server for dashboard access.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
+import os
 import signal
 from typing import Any
 
@@ -26,8 +28,10 @@ from zoom_auto.stt.faster_whisper import FasterWhisperEngine
 from zoom_auto.tts.chatterbox import ChatterboxEngine
 from zoom_auto.zoom.audio_capture import AudioCapture
 from zoom_auto.zoom.audio_sender import AudioSender
+from zoom_auto.zoom.chat_sender import ChatSender
 from zoom_auto.zoom.client import MeetingInfo, ZoomClient
 from zoom_auto.zoom.events import MeetingEvent, ZoomEventHandler
+from zoom_auto.zoom.url_parser import parse_meeting_input
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +55,7 @@ class ZoomAutoApp:
             target_sample_rate=settings.zoom.sample_rate,
         )
         self.audio_sender = AudioSender(config=settings.zoom)
+        self.chat_sender = ChatSender(config=settings.zoom)
 
         # -- VAD --
         self.vad = VADProcessor(config=settings.vad)
@@ -174,7 +179,34 @@ class ZoomAutoApp:
             display_name=self.settings.zoom.bot_name,
         )
         await self.zoom_client.join(meeting)
+
+        # Pass the SDK instance to the chat sender so it can use the
+        # SDK's chat controller for sending messages.
+        if self.zoom_client.sdk_instance is not None:
+            self.chat_sender.set_sdk(self.zoom_client.sdk_instance)
+
         logger.info("Joined meeting %s", meeting_id)
+
+    async def send_chat_message(self, text: str) -> bool:
+        """Send a message to the meeting chat.
+
+        Args:
+            text: The message text to send.
+
+        Returns:
+            True if the message was sent successfully, False otherwise.
+        """
+        return await self.chat_sender.send_message(text)
+
+    async def _send_disclaimer(self) -> None:
+        """Send disclaimer message to meeting chat after joining."""
+        # Small delay to ensure chat is ready
+        await asyncio.sleep(2)
+        success = await self.chat_sender.send_disclaimer()
+        if success:
+            logger.info("Disclaimer sent to meeting chat")
+        else:
+            logger.warning("Failed to send disclaimer to meeting chat")
 
     @property
     def is_running(self) -> bool:
@@ -249,6 +281,17 @@ class ZoomAutoApp:
             if user_id is not None:
                 self.turn_manager.on_speech_detected()
 
+        def on_meeting_joined(
+            event: MeetingEvent, data: dict[str, Any]
+        ) -> None:
+            if self.settings.zoom.send_disclaimer:
+                self._loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self._send_disclaimer())
+                )
+
+        self.event_handler.on(
+            MeetingEvent.MEETING_JOINED, on_meeting_joined
+        )
         self.event_handler.on(
             MeetingEvent.PARTICIPANT_JOINED, on_participant_joined
         )
@@ -263,15 +306,101 @@ class ZoomAutoApp:
         )
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser.
+
+    Returns:
+        Configured ArgumentParser instance.
+    """
+    parser = argparse.ArgumentParser(
+        prog="zoom-auto",
+        description="AI-powered autonomous Zoom meeting participant",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Start command (default -- start the app/web server)
+    subparsers.add_parser("start", help="Start the web server")
+
+    # Join command -- join a meeting directly
+    join_parser = subparsers.add_parser("join", help="Join a Zoom meeting")
+    join_parser.add_argument(
+        "meeting", help="Meeting ID or Zoom URL"
+    )
+    join_parser.add_argument(
+        "--password", "-p", default="", help="Meeting password"
+    )
+    join_parser.add_argument(
+        "--name", "-n", default=None, help="Display name"
+    )
+
+    # Index command -- index project directories for technical context
+    index_parser = subparsers.add_parser(
+        "index", help="Index project directories for technical context"
+    )
+    index_parser.add_argument(
+        "paths", nargs="+", help="Project directories to index"
+    )
+    index_parser.add_argument(
+        "--name", help="Override project name (only for single path)"
+    )
+
+    return parser
+
+
+async def _run_join(
+    app: ZoomAutoApp,
+    meeting_id: str,
+    password: str,
+    display_name: str | None,
+) -> None:
+    """Start the app and join a meeting.
+
+    Args:
+        app: The ZoomAutoApp instance.
+        meeting_id: Numeric Zoom meeting ID.
+        password: Meeting password (empty string if none).
+        display_name: Override display name (None uses config default).
+    """
+    if display_name:
+        app.settings.zoom.bot_name = display_name
+
+    logger.info(
+        "Joining meeting %s as '%s'",
+        meeting_id,
+        app.settings.zoom.bot_name,
+    )
+    await app.start()
+    await app.join_meeting(meeting_id, password)
+
+
+async def _run_start(app: ZoomAutoApp) -> None:
+    """Start the app in server mode, optionally auto-joining from env vars.
+
+    Args:
+        app: The ZoomAutoApp instance.
+    """
+    # Check for auto-join env vars
+    meeting_id = os.environ.get("ZOOM_AUTO_MEETING_ID")
+    meeting_password = os.environ.get("ZOOM_AUTO_MEETING_PASSWORD", "")
+
+    await app.start()
+
+    if meeting_id:
+        logger.info("Auto-joining meeting %s from environment", meeting_id)
+        await app.join_meeting(meeting_id, meeting_password)
+
+
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point with subcommands."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
-    settings = Settings()  # type: ignore[call-arg]
+    parser = _build_parser()
+    args = parser.parse_args()
 
+    settings = Settings()  # type: ignore[call-arg]
     app = ZoomAutoApp(settings)
 
     loop = asyncio.new_event_loop()
@@ -281,7 +410,15 @@ def main() -> None:
         loop.add_signal_handler(sig, lambda: asyncio.create_task(app.stop()))
 
     try:
-        loop.run_until_complete(app.start())
+        if args.command == "join":
+            parsed = parse_meeting_input(args.meeting)
+            password = args.password or parsed.password
+            loop.run_until_complete(
+                _run_join(app, parsed.meeting_id, password, args.name)
+            )
+        else:
+            # Default: start web server (existing behavior)
+            loop.run_until_complete(_run_start(app))
     except KeyboardInterrupt:
         loop.run_until_complete(app.stop())
     finally:

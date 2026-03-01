@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from zoom_auto.context.manager import ContextManager
 from zoom_auto.llm.base import LLMMessage, LLMProvider, LLMRole
 from zoom_auto.persona.builder import PersonaBuilder, PersonaProfile
+from zoom_auto.persona.knowledge_store import KnowledgeStore
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class ResponseGenerator:
         llm: LLM provider for response generation (Sonnet-tier).
         context_manager: The meeting context manager.
         persona: Optional persona profile for styling.
+        knowledge_store: Optional knowledge store for project context.
     """
 
     def __init__(
@@ -91,10 +93,12 @@ class ResponseGenerator:
         llm: LLMProvider,
         context_manager: ContextManager,
         persona: PersonaProfile | None = None,
+        knowledge_store: KnowledgeStore | None = None,
     ) -> None:
         self.llm = llm
         self.context_manager = context_manager
         self.persona = persona
+        self.knowledge_store = knowledge_store
         self._persona_builder = PersonaBuilder()
 
     async def generate(
@@ -170,6 +174,9 @@ class ResponseGenerator:
     def _build_system_prompt(self) -> str:
         """Build the system prompt incorporating persona style.
 
+        Includes persona styling and project knowledge context
+        when available.
+
         Returns:
             System prompt string for the LLM.
         """
@@ -187,7 +194,13 @@ class ResponseGenerator:
             persona_prompt = (
                 self._persona_builder.generate_system_prompt(self.persona)
             )
-            return f"{persona_prompt}\n\n{base}"
+            base = f"{persona_prompt}\n\n{base}"
+
+        # Add project knowledge if available
+        if self.knowledge_store:
+            knowledge = self.knowledge_store.get_context_string()
+            if knowledge:
+                base += f"\n\n{knowledge}"
 
         return base
 

@@ -48,6 +48,12 @@ class MeetingJoinRequest(BaseModel):
     display_name: str = "AI Assistant"
 
 
+class ChatMessageRequest(BaseModel):
+    """Request model for sending a chat message."""
+
+    text: str
+
+
 class MeetingStatusResponse(BaseModel):
     """Response model for meeting status."""
 
@@ -171,4 +177,34 @@ async def get_meeting_status() -> MeetingStatusResponse:
         duration_seconds=duration_seconds,
         utterances_count=utterances_count,
         responses_count=responses_count,
+    )
+
+
+@router.post("/send-chat")
+async def send_chat_message(request: ChatMessageRequest) -> dict[str, str]:
+    """Send a message to the meeting chat.
+
+    Args:
+        request: The chat message to send.
+    """
+    if _app_instance is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Application not initialized.",
+        )
+
+    app = _app_instance
+
+    if not app.zoom_client.is_connected:
+        raise HTTPException(
+            status_code=409,
+            detail="Not connected to a meeting.",
+        )
+
+    success = await app.send_chat_message(request.text)
+    if success:
+        return {"status": "ok", "message": "Chat message sent"}
+    raise HTTPException(
+        status_code=500,
+        detail="Failed to send chat message.",
     )

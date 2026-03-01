@@ -9,6 +9,10 @@ bot_name = "AI Assistant"
 sample_rate = 16000
 # Audio channels
 channels = 1
+# Disclaimer message sent to meeting chat on join
+disclaimer_message = "AI assistant is participating in this meeting on behalf of the host. Audio is processed locally."
+# Whether to send the disclaimer message automatically on join
+send_disclaimer = true
 
 [stt]
 # Whisper model size
@@ -71,3 +75,7 @@ threshold = 0.5
 min_speech_duration = 0.25
 # Minimum silence duration to end speech (seconds)
 min_silence_duration = 0.3
+
+# Auto-join meeting on startup (set via env vars)
+# ZOOM_AUTO_MEETING_ID=123456789
+# ZOOM_AUTO_MEETING_PASSWORD=abc123

@@ -118,6 +118,11 @@ class ZoomClient:
         """Information about the current meeting, if connected."""
         return self._meeting_info
 
+    @property
+    def sdk_instance(self) -> object | None:
+        """The Zoom SDK module, if initialised."""
+        return self._sdk_instance
+
     # ------------------------------------------------------------------ #
     #  SDK internals (run in executor)                                    #
     # ------------------------------------------------------------------ #
