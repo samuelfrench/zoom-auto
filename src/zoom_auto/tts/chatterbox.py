@@ -10,11 +10,16 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from zoom_auto.config import TTSConfig
 from zoom_auto.tts.base import TTSEngine, TTSResult
+
+if TYPE_CHECKING:
+    import torch
+    from chatterbox.tts import ChatterboxTTS
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +51,7 @@ class ChatterboxEngine(TTSEngine):
         self.config = config or TTSConfig()
         self._device = device
         self._exaggeration = max(0.0, min(1.0, exaggeration))
-        self._model: object | None = None
+        self._model: ChatterboxTTS | None = None
         self._sample_rate: int = _DEFAULT_SAMPLE_RATE
 
     @property
@@ -194,7 +199,7 @@ class ChatterboxEngine(TTSEngine):
             # Yield control to the event loop between chunks
             await asyncio.sleep(0)
 
-    def _load_voice_reference(self, path: Path) -> object:
+    def _load_voice_reference(self, path: Path) -> torch.Tensor:
         """Load a voice reference WAV file as a tensor for the model.
 
         Uses soundfile for reading audio (avoids torchaudio/torchcodec dependency
@@ -240,7 +245,7 @@ class ChatterboxEngine(TTSEngine):
         return wav
 
     @staticmethod
-    def _tensor_to_pcm_bytes(wav_tensor: object) -> bytes:
+    def _tensor_to_pcm_bytes(wav_tensor: torch.Tensor) -> bytes:
         """Convert a torch audio tensor to PCM 16-bit bytes.
 
         Args:

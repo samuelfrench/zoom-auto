@@ -21,8 +21,7 @@ import soundfile as sf
 import torch
 
 from zoom_auto.tts.base import TTSResult
-from zoom_auto.tts.chatterbox import ChatterboxEngine, _DEFAULT_SAMPLE_RATE
-
+from zoom_auto.tts.chatterbox import _DEFAULT_SAMPLE_RATE, ChatterboxEngine
 
 # --- Fixtures ---
 

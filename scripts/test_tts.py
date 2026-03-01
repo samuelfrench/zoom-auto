@@ -100,7 +100,8 @@ async def run_test(
     total_audio_duration = 0.0
 
     for i, phrase in enumerate(TEST_PHRASES):
-        print(f"\n[{i + 1}/{len(TEST_PHRASES)}] \"{phrase[:60]}{'...' if len(phrase) > 60 else ''}\"")
+        truncated = f"{phrase[:60]}..." if len(phrase) > 60 else phrase
+        print(f'\n[{i + 1}/{len(TEST_PHRASES)}] "{truncated}"')
 
         t_gen_start = time.perf_counter()
         result = await engine.synthesize(phrase, voice_sample=voice_reference)
