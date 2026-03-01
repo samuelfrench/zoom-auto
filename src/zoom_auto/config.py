@@ -70,6 +70,9 @@ class ContextConfig(BaseModel):
     max_window_tokens: int = 4000
     summarize_at: int = 3000
     max_action_items: int = 20
+    verbatim_window_seconds: int = 180  # 3 minutes of full transcript
+    summary_interval_seconds: int = 300  # summarize every 5 minutes
+    max_history_tokens: int = 2000  # prune summaries beyond this
 
 
 class ResponseConfig(BaseModel):
