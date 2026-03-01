@@ -390,6 +390,40 @@ async def _run_start(app: ZoomAutoApp) -> None:
         await app.join_meeting(meeting_id, meeting_password)
 
 
+def _run_index(paths: list[str], name_override: str | None) -> None:
+    """Index project directories and save to the knowledge store.
+
+    Args:
+        paths: List of project directory paths to index.
+        name_override: Optional name override (single project only).
+    """
+    from pathlib import Path
+
+    from zoom_auto.persona.knowledge_store import KnowledgeStore
+    from zoom_auto.persona.sources.project import ProjectIndexer
+
+    indexer = ProjectIndexer()
+    store = KnowledgeStore()
+
+    resolved = [Path(p).resolve() for p in paths]
+    indices = indexer.index_multiple(resolved)
+
+    if name_override and len(indices) == 1:
+        indices[0].name = name_override
+
+    for idx in indices:
+        store.save_index(idx)
+        print(f"Indexed: {idx.name}")
+        print(f"  Path: {idx.root_path}")
+        print(f"  Tech stack: {', '.join(idx.tech_stack) or 'none detected'}")
+        print(f"  Dependencies: {len(idx.dependencies)}")
+        print(f"  Patterns: {', '.join(idx.patterns) or 'none detected'}")
+        print(f"  Files: {idx.total_files}")
+        print()
+
+    print(f"Done. Indexed {len(indices)} project(s).")
+
+
 def main() -> None:
     """CLI entry point with subcommands."""
     logging.basicConfig(
@@ -399,6 +433,11 @@ def main() -> None:
 
     parser = _build_parser()
     args = parser.parse_args()
+
+    # Handle non-app commands first (no need to create ZoomAutoApp)
+    if args.command == "index":
+        _run_index(args.paths, args.name)
+        return
 
     settings = Settings()  # type: ignore[call-arg]
     app = ZoomAutoApp(settings)

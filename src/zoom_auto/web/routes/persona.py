@@ -15,6 +15,8 @@ from pydantic import BaseModel
 
 from zoom_auto.config import PersonaConfig
 from zoom_auto.persona.builder import PersonaBuilder, PersonaProfile, TextSample
+from zoom_auto.persona.knowledge_store import KnowledgeStore
+from zoom_auto.persona.sources.project import ProjectIndexer
 
 logger = logging.getLogger(__name__)
 
@@ -219,3 +221,89 @@ async def rebuild_persona() -> dict[str, str]:
         "status": "ok",
         "message": f"Persona rebuilt from {len(samples)} source files",
     }
+
+
+# --- Project Knowledge Endpoints ---
+
+
+class IndexProjectRequest(BaseModel):
+    """Request model for indexing a project directory."""
+
+    path: str
+    name: str | None = None
+
+
+def _index_project_sync(project_path: str, name_override: str | None) -> dict:
+    """Index a project directory (blocking I/O, runs in thread).
+
+    Args:
+        project_path: Absolute path to the project directory.
+        name_override: Optional name override.
+
+    Returns:
+        Dict with index summary.
+    """
+    indexer = ProjectIndexer()
+    store = KnowledgeStore()
+
+    resolved = Path(project_path).resolve()
+    index = indexer.index(resolved)
+
+    if name_override:
+        index.name = name_override
+
+    store.save_index(index)
+
+    return {
+        "name": index.name,
+        "root_path": index.root_path,
+        "tech_stack": index.tech_stack,
+        "dependencies_count": len(index.dependencies),
+        "patterns": index.patterns,
+        "total_files": index.total_files,
+    }
+
+
+@router.post("/index-project")
+async def index_project(request: IndexProjectRequest) -> dict:
+    """Index a project directory for technical context.
+
+    Args:
+        request: Contains the project path and optional name override.
+    """
+    project_path = Path(request.path)
+    if not project_path.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path is not a directory: {request.path}",
+        )
+
+    result = await asyncio.to_thread(
+        _index_project_sync, request.path, request.name
+    )
+    return {"status": "ok", **result}
+
+
+@router.get("/knowledge")
+async def list_knowledge() -> dict:
+    """List all indexed project knowledge."""
+    store = KnowledgeStore()
+    projects = store.list_projects()
+    return {"projects": projects, "count": len(projects)}
+
+
+@router.delete("/knowledge/{project_name}")
+async def delete_knowledge(project_name: str) -> dict:
+    """Delete indexed knowledge for a project.
+
+    Args:
+        project_name: Name of the project to delete.
+    """
+    store = KnowledgeStore()
+    deleted = store.delete_index(project_name)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No knowledge found for project: {project_name}",
+        )
+    return {"status": "ok", "deleted": project_name}
