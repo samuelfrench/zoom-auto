@@ -140,16 +140,11 @@ class ChatterboxEngine(TTSEngine):
         model = self._model
         loop = asyncio.get_running_loop()
 
-        # Load voice reference if provided
-        audio_prompt = None
-        if voice_sample is not None:
-            audio_prompt = self._load_voice_reference(voice_sample)
-
         def _generate() -> torch.Tensor:
             with torch.inference_mode():
                 kwargs: dict = {"text": text}
-                if audio_prompt is not None:
-                    kwargs["audio_prompt"] = audio_prompt
+                if voice_sample is not None:
+                    kwargs["audio_prompt_path"] = str(voice_sample)
                 kwargs["exaggeration"] = self._exaggeration
                 return model.generate(**kwargs)
 

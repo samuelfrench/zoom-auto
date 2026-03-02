@@ -29,6 +29,9 @@ htmlcov/
 data/
 !data/.gitkeep
 
+# Output (TTS demo, generated audio)
+output/
+
 # IDE
 .idea/
 .vscode/

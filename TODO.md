@@ -62,8 +62,8 @@ All phases fully implemented. Zero `NotImplementedError` stubs remain.
 - [x] Conversation learning with vocabulary tracking + persona rebuilding
 
 ## Remaining: Real-World Validation
-- [ ] **Fix pkuseg build failure** (C extension won't compile — dependency of chatterbox-tts)
-- [ ] Record voice reference samples for TTS cloning
+- [x] **Fix pkuseg build failure** — added `[tool.uv.extra-build-dependencies] pkuseg = ["numpy"]` + `python-multipart` dep
+- [x] Record voice reference samples for TTS cloning — imported 177/212 samples (306.7s), TTS demo verified (0.75x RTF)
 - [ ] Create Zoom Meeting SDK app at marketplace.zoom.us (get JWT credentials)
 - [ ] Run demo pipeline with live mic: `python scripts/demo_pipeline.py --user sam`
 - [ ] Test with real Zoom meeting (1-on-1, free account)
